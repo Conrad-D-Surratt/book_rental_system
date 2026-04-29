@@ -1,40 +1,37 @@
 import streamlit as st
 import os
+import pandas as pd  # Added for Linda's structured view
 
-# --- CLASS DEFINITION ---
-class Book:
-    def __init__(self, title, genre):
-        self.__title = title
-        self.__genre = genre
-
-    def get_title(self):
-        return self.__title
-
-    def get_genre(self):
-        return self.__genre
-
-    def display_order(self, index):
-        return f"{index}. 📖 **Title:** {self.__title} | **Category:** {self.__genre}"
+# Import your classes from the separate blueprints file
+from blueprints import Book, DigitalBook
 
 # --- DATA PERSISTENCE LAYER ---
+# Fixed Simon's bug by using a pipe '|' instead of a comma ','
 FILE_NAME = "book_inventory.txt"
+DELIMITER = "|"
 
 def save_rental(book_obj):
-    """Appends a single book rental to the text file."""
-    with open(FILE_NAME, "a") as f:
-        f.write(f"{book_obj.get_title()},{book_obj.get_genre()}\n")
+    """System Resilience: Using try/except to protect file writes."""
+    try:
+        with open(FILE_NAME, "a") as f:
+            # Saving with pipe to allow commas in titles
+            f.write(f"{book_obj.get_title()}{DELIMITER}{book_obj.get_genre()}\n")
+    except Exception as e:
+        st.error(f"Error saving data: {e}")
 
 def load_all_rentals():
-    """Reads the file and returns a list of Book objects."""
+    """System Resilience: Using try/except to protect file reads."""
     rentals = []
-    if os.path.exists(FILE_NAME):
-        with open(FILE_NAME, "r") as f:
-            for line in f:
-                # Clean and split each line into Title and Genre
-                parts = line.strip().split(",")
-                if len(parts) == 2:
-                    # Re-instantiate the Book object for the UI
-                    rentals.append(Book(parts[0], parts[1]))
+    try:
+        if os.path.exists(FILE_NAME):
+            with open(FILE_NAME, "r") as f:
+                for line in f:
+                    parts = line.strip().split(DELIMITER)
+                    if len(parts) == 2:
+                        # Uses the Book class imported from blueprints.py
+                        rentals.append(Book(parts[0], parts[1]))
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
     return rentals
 
 # --- SIDEBAR NAVIGATION ---
@@ -45,44 +42,47 @@ page = st.sidebar.radio("Navigate to:", ["Add Rental", "View History"])
 if page == "Add Rental":
     st.title("📚 Add New Rental")
     
+    # Fixed Dan's bug: clear_on_submit=True ensures the form resets
     with st.form("input_form", clear_on_submit=True):
-        title = st.text_input("Enter Book Title")
+        st.info("Fill out the details below. The form will reset after a successful log.")
+        title = st.text_input("Enter Book Title").strip() # Simon's fix: .strip() handles whitespace
         genre = st.selectbox("Select Genre", ["Fiction", "Non-Fiction", "Sci-Fi", "Fantasy", "Mystery", "History"])
         submitted = st.form_submit_button("Log Rental")
         
     if submitted:
-        if title.strip():
+        if title: 
+            # Creating a new Book object from blueprints
             new_book = Book(title, genre)
             save_rental(new_book)
             st.success(f"Successfully logged: {title}")
         else:
-            st.error("Title cannot be blank.")
+            st.error("Submission failed: Please enter a valid book title.")
 
 # --- PAGE: VIEW HISTORY ---
 elif page == "View History":
     st.title("📜 Rental History")
     
-    # 1. Load data from file
     all_books = load_all_rentals()
     
-    # 2. Search/Filter Section
-    search_query = st.text_input("🔍 Search by title...", "").lower()
-    
-    # 3. Filtering Logic
-    # We create a new list containing only books that match the search query
-    filtered_books = [
-        book for book in all_books 
-        if search_query in book.get_title().lower()
-    ]
-
-    # 4. Display Results
+    # Librarian Linda & Low-Vision Leo Fix: Using a Dataframe
     if not all_books:
         st.info("The inventory is currently empty.")
-    elif not filtered_books:
-        st.warning(f"No titles found matching '{search_query}'.")
     else:
-        st.write(f"Showing **{len(filtered_books)}** of {len(all_books)} records")
-        st.divider()
+        # Convert objects to a list of dictionaries for Pandas using display_info() from blueprints
+        data_list = [b.display_info() for b in all_books]
+        df = pd.DataFrame(data_list)
+
+        # Search Bar
+        search_query = st.text_input("🔍 Search by title...", "").lower()
         
-        for i, book in enumerate(filtered_books, 1):
-            st.write(book.display_order(i))
+        # Filtering logic
+        filtered_df = df[df['Title'].str.lower().str.contains(search_query)]
+
+        if filtered_df.empty:
+            st.warning(f"No titles found matching '{search_query}'.")
+        else:
+            # Linda's Sort: Allow user to sort by clicking column headers
+            st.write(f"Showing **{len(filtered_df)}** of {len(all_books)} records")
+            
+            # This renders a clean, accessible, and sortable table
+            st.dataframe(filtered_df, use_container_width=True, hide_index=True)
